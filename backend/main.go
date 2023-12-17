@@ -4,6 +4,7 @@ import (
 	dbI "cx/db"
 	"cx/model"
 	"cx/server"
+	"cx/utils"
 	"log"
 
 	"github.com/gofiber/fiber/v2"
@@ -15,9 +16,7 @@ var db *gorm.DB
 
 func main() {
 	db, _ = dbI.SetupDB(db)
-
 	app, err := SetupServer(db)
-
 	PORT := ":8080"
 
 	if err != nil {
@@ -28,23 +27,41 @@ func main() {
 
 }
 
+// TODO:: Move these to server package
+
 func SetupServer(db *gorm.DB) (*fiber.App, error) {
 	app := fiber.New()
+
+	app.Get("/:url", RedirectByShortUrl)
 
 	api := app.Group("/api")
 
 	api.Route("/urls", func(r fiber.Router) {
-		r.Get("/", GetLinksRoute)
-		r.Post("/", CreateLinkRoute)
+		r.Get("/", GetAllLinks)
+		r.Post("/", CreateLink)
 	})
 
-	api.Route("/:url", func(r fiber.Router) {
-		r.Get("/", GetLinkRoute)
-		r.Patch("/", UpdateLinkRoute)
-		r.Delete("/", DeleteLinkRoute)
+	api.Route("/:id", func(r fiber.Router) {
+		r.Get("/", GetLinkById)
+		r.Put("/", UpdateLinkById)
+		r.Delete("/", DeleteLinkById)
 	})
 
 	return app, nil
+
+}
+
+func GetLinkById(c *fiber.Ctx) error {
+
+	link, err := server.GetLinkByLinkID(db, c.Params("id"))
+
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(link)
 
 }
 
@@ -60,86 +77,8 @@ func CreateLink(c *fiber.Ctx) error {
 		})
 	}
 
-	err := server.CreateLink(db, &link)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-
-	return c.Status(fiber.StatusCreated).JSON(link)
-
-}
-
-func GetLinks(c *fiber.Ctx) error {
-
-	links, err := server.GetLinks(db)
-
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-
-	return c.Status(fiber.StatusOK).JSON(links)
-}
-
-func GetLink(c *fiber.Ctx) error {
-
-	link, err := server.GetLinkByShortURL(db, c.Params("url"))
-
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-
-	return c.Redirect(link.URL, fiber.StatusMovedPermanently)
-
-}
-
-func UpdateLink(c *fiber.Ctx) error {
-
-	link, err := server.UpdateLink(db, c.Params("url"))
-
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-
-	}
-
-	return c.Status(fiber.StatusOK).JSON(link)
-
-}
-
-func DeleteLink(c *fiber.Ctx) error {
-
-	err := server.DeleteLink(db, c.Params("url"))
-
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-
-	}
-
-	return c.Status(fiber.StatusNoContent).JSON(fiber.Map{
-		"message": "Link deleted",
-	})
-
-}
-
-func CreateLinkRoute(c *fiber.Ctx) error {
-
-	var link = model.Link{
-		ID: uuid.New().String(),
-	}
-
-	if err := c.BodyParser(&link); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Cannot parse JSON",
-		})
+	if link.ShortURL == "" {
+		link.ShortURL = utils.RandomString(6)
 	}
 
 	err := server.CreateLink(db, &link)
@@ -153,7 +92,7 @@ func CreateLinkRoute(c *fiber.Ctx) error {
 
 }
 
-func GetLinksRoute(c *fiber.Ctx) error {
+func GetAllLinks(c *fiber.Ctx) error {
 
 	links, err := server.GetLinks(db)
 
@@ -169,7 +108,7 @@ func GetLinksRoute(c *fiber.Ctx) error {
 	})
 }
 
-func GetLinkRoute(c *fiber.Ctx) error {
+func RedirectByShortUrl(c *fiber.Ctx) error {
 
 	link, err := server.GetLinkByShortURL(db, c.Params("url"))
 
@@ -183,9 +122,19 @@ func GetLinkRoute(c *fiber.Ctx) error {
 
 }
 
-func UpdateLinkRoute(c *fiber.Ctx) error {
+func UpdateLinkById(c *fiber.Ctx) error {
 
-	link, err := server.UpdateLink(db, c.Params("url"))
+	link := model.Link{
+		ID: c.Params("id"),
+	}
+
+	if err := c.BodyParser(&link); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Cannot parse JSON",
+		})
+	}
+
+	link, err := server.UpdateLink(db, &link)
 
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -198,9 +147,9 @@ func UpdateLinkRoute(c *fiber.Ctx) error {
 
 }
 
-func DeleteLinkRoute(c *fiber.Ctx) error {
+func DeleteLinkById(c *fiber.Ctx) error {
 
-	err := server.DeleteLink(db, c.Params("url"))
+	link, err := server.DeleteLink(db, c.Params("id"))
 
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -209,8 +158,6 @@ func DeleteLinkRoute(c *fiber.Ctx) error {
 
 	}
 
-	return c.Status(fiber.StatusNoContent).JSON(fiber.Map{
-		"message": "Link deleted",
-	})
+	return c.Status(fiber.StatusNoContent).JSON(link)
 
 }

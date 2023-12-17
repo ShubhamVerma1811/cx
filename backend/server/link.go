@@ -2,6 +2,7 @@ package server
 
 import (
 	"cx/model"
+	"errors"
 
 	"gorm.io/gorm"
 )
@@ -14,7 +15,7 @@ func GetLinks(db *gorm.DB) ([]model.Link, error) {
 
 func GetLinkByLinkID(db *gorm.DB, id string) (model.Link, error) {
 	var link model.Link
-	tx := db.Where("id = ? AND user_id = ?", id).First(&link)
+	tx := db.Where("id = ?", id).First(&link)
 	return link, tx.Error
 }
 
@@ -29,23 +30,36 @@ func CreateLink(db *gorm.DB, link *model.Link) error {
 	return tx.Error
 }
 
-func DeleteLink(db *gorm.DB, id string) error {
-	tx := db.Unscoped().Delete(&model.Link{
-		ShortURL: id,
-	})
-	return tx.Error
-}
+func DeleteLink(db *gorm.DB, id string) (model.Link, error) {
 
-func UpdateLink(db *gorm.DB, id string) (model.Link, error) {
-	tx := db.Save(id)
+	link := model.Link{}
+
+	tx := db.Where("id = ?", id).Unscoped().Delete(&link)
 
 	if tx.Error != nil {
 		return model.Link{}, tx.Error
 	}
 
-	link, err := GetLinkByLinkID(db, id)
+	if tx.RowsAffected == 0 {
+		return model.Link{}, errors.New("Link not found")
 
-	return link, err
+	}
+
+	return link, tx.Error
+}
+
+func UpdateLink(db *gorm.DB, link *model.Link) (model.Link, error) {
+	tx := db.Where("id = ?", *&link.ID).Updates(&link)
+
+	if tx.Error != nil {
+		return model.Link{}, tx.Error
+	}
+
+	if tx.RowsAffected == 0 {
+		return model.Link{}, errors.New("Link not found")
+	}
+
+	return *link, nil
 }
 
 func GetLinksByUserID(db *gorm.DB, userID uint64) ([]model.Link, error) {
